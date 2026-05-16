@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-IMAGE="${IMAGE:-ffmpeg-api:1.0.0}"
+IMAGE="${IMAGE:-ffmpeg-api:1.1.0}"
 CONTAINER_NAME="${CONTAINER_NAME:-ffmpeg-api-smoke}"
 PORT="${PORT:-18000}"
 TMP_DIR="$(mktemp -d)"
@@ -47,6 +47,7 @@ download_from_file_id() {
 }
 
 download_from_file_id "$(post_file /convert_to_mp3 "${TMP_DIR}/tone.wav")"
+download_from_file_id "$(curl -fsS -X POST -F "file=@${TMP_DIR}/tone.wav" -F "format=mp3" -F "audio_codec=libmp3lame" -F "audio_bitrate=96k" "http://127.0.0.1:${PORT}/convert")"
 download_from_file_id "$(post_file /convert_to_wav "${TMP_DIR}/tone.mp3")"
 download_from_file_id "$(post_file /convert_to_mp4 "${TMP_DIR}/sample.mp4")"
 download_from_file_id "$(post_file /convert_image_to_jpg "${TMP_DIR}/sample.png")"
@@ -56,6 +57,9 @@ post_file /probe "${TMP_DIR}/sample.mp4" | grep -q '"format"'
 download_from_file_id "$(post_file /extract_audio_to_mp3 "${TMP_DIR}/sample.mp4")"
 post_file /split_mp3 "${TMP_DIR}/tone.mp3" | grep -q 'chunk_file_ids'
 download_from_file_id "$(post_file /scrubber "${TMP_DIR}/tone.mp3")"
+artifact_id="$(post_file /convert_to_mp3 "${TMP_DIR}/tone.wav" | "${PYTHON_BIN}" -c 'import json,sys; print(json.load(sys.stdin)["file_id"])')"
+curl -fsS "http://127.0.0.1:${PORT}/artifacts/${artifact_id}" | grep -q '"operation"'
+curl -fsS -X DELETE "http://127.0.0.1:${PORT}/artifacts/${artifact_id}" | grep -q '"deleted":true'
 curl -sS "http://127.0.0.1:${PORT}/download/not-a-real-id" -o /dev/null -w '%{http_code}' | grep -q '404'
 
 echo "container smoke tests passed"

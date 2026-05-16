@@ -15,10 +15,12 @@ def api_module(tmp_path, monkeypatch):
     sys.modules.pop("ffmpeg_api", None)
     module = importlib.import_module("ffmpeg_api")
 
-    module.UPLOAD_DIR = str(tmp_path / "uploads")
-    module.OUTPUT_DIR = str(tmp_path / "outputs")
-    Path(module.UPLOAD_DIR).mkdir(exist_ok=True)
-    Path(module.OUTPUT_DIR).mkdir(exist_ok=True)
+    module.UPLOAD_DIR = tmp_path / "uploads"
+    module.OUTPUT_DIR = tmp_path / "outputs"
+    module.METADATA_DIR = module.OUTPUT_DIR / ".metadata"
+    module.UPLOAD_DIR.mkdir(exist_ok=True)
+    module.OUTPUT_DIR.mkdir(exist_ok=True)
+    module.METADATA_DIR.mkdir(exist_ok=True)
 
     return module
 

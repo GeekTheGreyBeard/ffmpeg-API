@@ -2,6 +2,7 @@ FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
+    DEBIAN_FRONTEND=noninteractive \
     FFMPEG_API_UPLOAD_DIR=/data/uploads \
     FFMPEG_API_OUTPUT_DIR=/data/outputs
 

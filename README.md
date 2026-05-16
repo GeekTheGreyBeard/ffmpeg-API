@@ -7,6 +7,7 @@ It is useful when an app, workflow, or automation pipeline needs media conversio
 ## What It Does
 
 - Converts audio and video to MP3, WAV, or MP4.
+- Converts uploaded media through a generic `/convert` endpoint with format, codec, bitrate, resolution, frame-rate, sample-rate, channel, and quality options.
 - Converts images to JPG.
 - Extracts audio from video as WAV or MP3.
 - Extracts video frames into a ZIP archive.
@@ -55,8 +56,8 @@ Processed uploads and outputs are stored in the named Docker volume `ffmpeg-api-
 ## Docker
 
 ```bash
-docker build -t ffmpeg-api:1.0.0 .
-docker run --rm -p 8000:8000 -v ffmpeg-api-data:/data ffmpeg-api:1.0.0
+docker build -t ffmpeg-api:1.1.0 .
+docker run --rm -p 8000:8000 -v ffmpeg-api-data:/data ffmpeg-api:1.1.0
 ```
 
 Runtime media paths can be overridden with:
@@ -77,10 +78,11 @@ By default, the local service listens on port `8000`. Set `PORT` to override it.
 
 ## API
 
-Most `POST` endpoints accept `multipart/form-data` with a file field named `file`. Processing endpoints return a generated `file_id`; use `GET /download/{file_id}` to retrieve the generated artifact.
+Most `POST` endpoints accept `multipart/form-data` with a file field named `file`. Processing endpoints return a generated `file_id`, artifact metadata, and a `download_url`; use `GET /download/{file_id}` to retrieve the generated artifact.
 
 - `GET /health` - Return service health and version.
 - `GET /endpoints` - Return the endpoint catalog.
+- `POST /convert` - Convert uploaded media to a requested format with optional codec/bitrate/resolution controls.
 - `POST /convert_to_mp3` - Convert uploaded audio/video to MP3.
 - `POST /convert_to_wav` - Convert uploaded audio/video to WAV.
 - `POST /convert_to_mp4` - Convert uploaded video/media to MP4.
@@ -91,6 +93,8 @@ Most `POST` endpoints accept `multipart/form-data` with a file field named `file
 - `POST /extract_audio_to_mp3` - Extract audio from uploaded video/media as MP3.
 - `POST /split_mp3` - Split an uploaded MP3 into approximately 23 MB chunks.
 - `POST /scrubber` - Remove silence from uploaded MP3/audio.
+- `GET /artifacts/{file_id}` - Return metadata for a generated artifact.
+- `DELETE /artifacts/{file_id}` - Delete a generated artifact and its metadata.
 - `GET /download/{file_id}` - Download a generated artifact by file ID.
 
 Example:
@@ -98,6 +102,18 @@ Example:
 ```bash
 curl -X POST -F "file=@sample.wav" http://127.0.0.1:8000/convert_to_mp3
 curl -o output.mp3 http://127.0.0.1:8000/download/<file_id>
+```
+
+Generic conversion example:
+
+```bash
+curl -X POST \
+  -F "file=@sample.mov" \
+  -F "format=mp4" \
+  -F "video_codec=libx264" \
+  -F "audio_codec=aac" \
+  -F "quality=medium" \
+  http://127.0.0.1:8000/convert
 ```
 
 Replace `<file_id>` with the value returned by the processing endpoint.
