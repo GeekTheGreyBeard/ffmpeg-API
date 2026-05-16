@@ -2,7 +2,7 @@
 
 ## Scope
 
-Initial standalone Splat-I module release of Rodney's working FFmpeg FastAPI service, copied from gtgb-scripthost:~/HOLD/ffmpeg and packaged for Docker.
+Initial standalone Splat-I module release of the FFmpeg FastAPI service, packaged for Docker and Docker Compose.
 
 ## Release Gates
 

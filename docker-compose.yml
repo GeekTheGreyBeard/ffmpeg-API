@@ -1,0 +1,27 @@
+services:
+  ffmpeg-api:
+    build:
+      context: .
+    image: ffmpeg-api:1.0.0
+    container_name: ffmpeg-api
+    restart: unless-stopped
+    ports:
+      - "${FFMPEG_API_PORT:-8000}:8000"
+    environment:
+      FFMPEG_API_UPLOAD_DIR: /data/uploads
+      FFMPEG_API_OUTPUT_DIR: /data/outputs
+    volumes:
+      - ffmpeg-api-data:/data
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3).read()"
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+
+volumes:
+  ffmpeg-api-data:
