@@ -1,0 +1,10 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
+uploads/
+outputs/
+test-artifacts/
+testfile_images/
+.coverage
