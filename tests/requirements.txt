@@ -1,4 +1,6 @@
 fastapi
 httpx
+mcp
 pytest
+pytest-asyncio
 python-multipart

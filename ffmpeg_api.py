@@ -12,7 +12,7 @@ from fastapi.responses import FileResponse
 
 app = FastAPI(
     title="Splat-I FFmpeg API",
-    version="1.1.0",
+    version="1.2.0",
     description="Standalone Splat-I module exposing common FFmpeg media operations over HTTP.",
 )
 
@@ -396,4 +396,3 @@ async def list_endpoints():
             "/health": "Return container/service health status",
         }
     }
-

@@ -231,11 +231,11 @@ def test_list_endpoints_includes_public_routes(client):
     assert "/download/{file_id}" in endpoints
 
 
-def test_health_reports_v1_1(client):
+def test_health_reports_v1_2(client):
     response = client.get("/health")
 
     assert response.status_code == 200
-    assert response.json()["version"] == "1.1.0"
+    assert response.json()["version"] == "1.2.0"
 
 
 def test_generic_convert_supports_format_and_audio_options(client, api_module, tmp_path):

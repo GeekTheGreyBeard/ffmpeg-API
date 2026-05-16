@@ -1,0 +1,24 @@
+[project]
+name = "ffmpeg-mcp"
+version = "1.2.0"
+description = "MCP server adapter for ffmpeg-API."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "httpx>=0.28.0",
+    "mcp>=1.27.1",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.24.0",
+]
+
+[project.scripts]
+ffmpeg-mcp = "ffmpeg_mcp.server:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["ffmpeg_mcp*"]
+

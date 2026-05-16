@@ -4,6 +4,8 @@ ffmpeg-API is a small FastAPI service for running common FFmpeg and FFprobe medi
 
 It is useful when an app, workflow, or automation pipeline needs media conversion without embedding FFmpeg command handling into every client. Upload a file, receive a generated `file_id`, then download the processed artifact from the API.
 
+The Docker Compose stack also includes `ffmpeg-mcp`, a standalone MCP server that exposes the API as agent-friendly tools over Streamable HTTP.
+
 ## What It Does
 
 - Converts audio and video to MP3, WAV, or MP4.
@@ -35,6 +37,7 @@ The Docker image installs FFmpeg for you.
 cp .env.example .env
 docker compose up -d --build
 curl http://127.0.0.1:8000/health
+curl http://127.0.0.1:18003/health
 ```
 
 By default, the service listens on port `8000`. Set `FFMPEG_API_PORT` in `.env` to use a different host port.
@@ -43,6 +46,12 @@ Interactive OpenAPI docs are available at:
 
 ```text
 http://127.0.0.1:8000/docs
+```
+
+The MCP server is available at:
+
+```text
+http://127.0.0.1:18003/mcp
 ```
 
 To stop the stack:
@@ -56,8 +65,8 @@ Processed uploads and outputs are stored in the named Docker volume `ffmpeg-api-
 ## Docker
 
 ```bash
-docker build -t ffmpeg-api:1.1.0 .
-docker run --rm -p 8000:8000 -v ffmpeg-api-data:/data ffmpeg-api:1.1.0
+docker build -t ffmpeg-api:1.2.0 .
+docker run --rm -p 8000:8000 -v ffmpeg-api-data:/data ffmpeg-api:1.2.0
 ```
 
 Runtime media paths can be overridden with:
@@ -117,6 +126,28 @@ curl -X POST \
 ```
 
 Replace `<file_id>` with the value returned by the processing endpoint.
+
+## MCP Server
+
+The Compose stack builds a second image, `ffmpeg-mcp:1.2.0`, from `mcp-server/`.
+
+The MCP server is intentionally standalone. It does not import the FastAPI app directly; it calls `ffmpeg-api` over HTTP using `FFMPEG_API_BASE_URL`. In Docker Compose, that URL is `http://ffmpeg-api:8000`.
+
+Available MCP tools:
+
+- `health`
+- `list_endpoints`
+- `convert_media`
+- `probe_media`
+- `extract_audio`
+- `extract_frames`
+- `split_mp3`
+- `scrub_audio`
+- `get_artifact`
+- `delete_artifact`
+
+For remote clients, media can be passed as base64 content. For trusted local/container-mounted use, tools also accept a `file_path`.
+
 
 ## Testing
 

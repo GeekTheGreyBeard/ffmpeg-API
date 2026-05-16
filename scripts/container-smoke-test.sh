@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-IMAGE="${IMAGE:-ffmpeg-api:1.1.0}"
+IMAGE="${IMAGE:-ffmpeg-api:1.2.0}"
 CONTAINER_NAME="${CONTAINER_NAME:-ffmpeg-api-smoke}"
 PORT="${PORT:-18000}"
 TMP_DIR="$(mktemp -d)"
