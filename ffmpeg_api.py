@@ -7,20 +7,21 @@ import time
 from pathlib import Path
 from uuid import uuid4
 
-from fastapi import FastAPI, Form, HTTPException, UploadFile
+from fastapi import BackgroundTasks, FastAPI, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 
 app = FastAPI(
     title="Splat-I FFmpeg API",
-    version="1.2.0",
+    version="1.3.0",
     description="Standalone Splat-I module exposing common FFmpeg media operations over HTTP.",
 )
 
 UPLOAD_DIR = Path(os.getenv("FFMPEG_API_UPLOAD_DIR", "uploads"))
 OUTPUT_DIR = Path(os.getenv("FFMPEG_API_OUTPUT_DIR", "outputs"))
 METADATA_DIR = OUTPUT_DIR / ".metadata"
+JOBS_DIR = OUTPUT_DIR / ".jobs"
 
-for directory in (UPLOAD_DIR, OUTPUT_DIR, METADATA_DIR):
+for directory in (UPLOAD_DIR, OUTPUT_DIR, METADATA_DIR, JOBS_DIR):
     directory.mkdir(parents=True, exist_ok=True)
 
 ALLOWED_GENERIC_FORMATS = {
@@ -45,6 +46,8 @@ ALLOWED_GENERIC_FORMATS = {
 ALLOWED_VIDEO_CODECS = {"copy", "libx264", "libx265", "mpeg4", "libvpx-vp9"}
 ALLOWED_AUDIO_CODECS = {"copy", "aac", "libmp3lame", "libopus", "pcm_s16le", "flac"}
 ALLOWED_VIDEO_QUALITIES = {"low", "medium", "high"}
+ALLOWED_BATCH_INPUT_FORMATS = {"aac", "flac", "m4a", "mp3", "ogg", "opus", "wav"}
+ALLOWED_BATCH_OUTPUT_FORMATS = {"aac", "flac", "m4a", "mp3", "ogg", "opus", "wav"}
 
 VIDEO_QUALITY_ARGS = {
     "low": ["-crf", "30", "-preset", "veryfast"],
@@ -59,6 +62,10 @@ def run_command(command):
     except subprocess.CalledProcessError as e:
         detail = e.stderr.strip() or e.stdout.strip() or str(e)
         raise HTTPException(status_code=500, detail=f"FFmpeg command failed: {detail}")
+
+
+def run_command_result(command):
+    return subprocess.run(command, check=False, capture_output=True, text=True)
 
 
 def run_probe(input_path):
@@ -144,6 +151,138 @@ def validate_choice(name, value, allowed):
     if value is not None and value not in allowed:
         allowed_values = ", ".join(sorted(allowed))
         raise HTTPException(status_code=400, detail=f"{name} must be one of: {allowed_values}")
+
+
+def job_metadata_path(job_id):
+    return JOBS_DIR / f"{job_id}.json"
+
+
+def write_job_metadata(job_id, metadata):
+    metadata["job_id"] = job_id
+    metadata["updated_at"] = int(time.time())
+    job_metadata_path(job_id).write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+    return metadata
+
+
+def read_job_metadata(job_id):
+    metadata_path = job_metadata_path(job_id)
+    if not metadata_path.exists():
+        raise HTTPException(status_code=404, detail="Job not found")
+    return json.loads(metadata_path.read_text(encoding="utf-8"))
+
+
+def validate_directory(path_text, name, must_exist=True):
+    try:
+        path = Path(path_text).expanduser().resolve()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=400, detail=f"{name} is not valid: {exc}") from exc
+    if must_exist and not path.is_dir():
+        raise HTTPException(status_code=400, detail=f"{name} must be an existing directory")
+    return path
+
+
+def list_batch_inputs(source_dir, input_format, recursive):
+    pattern = f"*.{input_format.lower().lstrip('.')}"
+    iterator = source_dir.rglob(pattern) if recursive else source_dir.glob(pattern)
+    return sorted(path for path in iterator if path.is_file())
+
+
+def build_batch_audio_command(
+    input_path,
+    output_path,
+    output_format,
+    audio_codec,
+    audio_bitrate,
+    sample_rate,
+    audio_channels,
+    overwrite,
+):
+    command = ["ffmpeg", "-hide_banner", "-loglevel", "error"]
+    if overwrite:
+        command.append("-y")
+    else:
+        command.append("-n")
+    command.extend(["-i", str(input_path), "-vn"])
+    if audio_codec:
+        command.extend(["-c:a", audio_codec])
+    elif output_format == "mp3":
+        command.extend(["-c:a", "libmp3lame"])
+    if audio_bitrate:
+        command.extend(["-b:a", audio_bitrate])
+    if sample_rate is not None:
+        command.extend(["-ar", str(sample_rate)])
+    if audio_channels is not None:
+        command.extend(["-ac", str(audio_channels)])
+    command.append(str(output_path))
+    return command
+
+
+def run_batch_convert_job(
+    job_id,
+    source_dir,
+    output_dir,
+    input_format,
+    output_format,
+    recursive,
+    overwrite,
+    audio_codec,
+    audio_bitrate,
+    sample_rate,
+    audio_channels,
+):
+    job = read_job_metadata(job_id)
+    job["status"] = "running"
+    job["started_at"] = int(time.time())
+    write_job_metadata(job_id, job)
+
+    source_files = list_batch_inputs(source_dir, input_format, recursive)
+    job["total"] = len(source_files)
+    write_job_metadata(job_id, job)
+
+    try:
+        for input_path in source_files:
+            relative_path = input_path.relative_to(source_dir)
+            output_path = (output_dir / relative_path).with_suffix(f".{output_format}")
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+
+            item = {"input": str(input_path), "output": str(output_path)}
+            if output_path.exists() and not overwrite:
+                job["skipped"] += 1
+                item["status"] = "skipped"
+                job["items"].append(item)
+                write_job_metadata(job_id, job)
+                continue
+
+            command = build_batch_audio_command(
+                input_path,
+                output_path,
+                output_format,
+                audio_codec,
+                audio_bitrate,
+                sample_rate,
+                audio_channels,
+                overwrite,
+            )
+            result = run_command_result(command)
+            if result.returncode == 0 and output_path.exists() and output_path.stat().st_size > 0:
+                job["converted"] += 1
+                item["status"] = "converted"
+                item["size_bytes"] = output_path.stat().st_size
+            else:
+                job["failed"] += 1
+                item["status"] = "failed"
+                item["error"] = (result.stderr or result.stdout or "unknown ffmpeg error").strip()
+            job["items"].append(item)
+            write_job_metadata(job_id, job)
+
+        job["status"] = "completed" if job["failed"] == 0 else "completed_with_errors"
+        job["finished_at"] = int(time.time())
+        write_job_metadata(job_id, job)
+    except Exception as exc:
+        job["status"] = "failed"
+        job["error"] = str(exc)
+        job["finished_at"] = int(time.time())
+        write_job_metadata(job_id, job)
 
 
 @app.get("/health")
@@ -357,6 +496,87 @@ async def scrubber(file: UploadFile):
     return response
 
 
+@app.post("/batch/convert-local")
+async def batch_convert_local(
+    background_tasks: BackgroundTasks,
+    source_dir: str = Form(...),
+    output_dir: str = Form(...),
+    input_format: str = Form("wav"),
+    output_format: str = Form("mp3"),
+    recursive: bool = Form(True),
+    overwrite: bool = Form(False),
+    audio_codec: str | None = Form(None),
+    audio_bitrate: str | None = Form("128k"),
+    sample_rate: int | None = Form(None),
+    audio_channels: int | None = Form(None),
+):
+    input_format = input_format.lower().lstrip(".")
+    output_format = output_format.lower().lstrip(".")
+    validate_choice("input_format", input_format, ALLOWED_BATCH_INPUT_FORMATS)
+    validate_choice("output_format", output_format, ALLOWED_BATCH_OUTPUT_FORMATS)
+    validate_choice("audio_codec", audio_codec, ALLOWED_AUDIO_CODECS)
+    if sample_rate is not None and sample_rate not in {8000, 11025, 16000, 22050, 24000, 32000, 44100, 48000, 96000}:
+        raise HTTPException(status_code=400, detail="sample_rate is not supported")
+    if audio_channels is not None and audio_channels not in {1, 2, 6, 8}:
+        raise HTTPException(status_code=400, detail="audio_channels must be 1, 2, 6, or 8")
+
+    resolved_source_dir = validate_directory(source_dir, "source_dir")
+    resolved_output_dir = validate_directory(output_dir, "output_dir", must_exist=False)
+    resolved_output_dir.mkdir(parents=True, exist_ok=True)
+    source_files = list_batch_inputs(resolved_source_dir, input_format, recursive)
+    if not source_files:
+        raise HTTPException(status_code=400, detail="source_dir does not contain matching input files")
+
+    job_id = str(uuid4())
+    job = {
+        "status": "queued",
+        "source_dir": str(resolved_source_dir),
+        "output_dir": str(resolved_output_dir),
+        "input_format": input_format,
+        "output_format": output_format,
+        "recursive": recursive,
+        "overwrite": overwrite,
+        "audio_codec": audio_codec,
+        "audio_bitrate": audio_bitrate,
+        "sample_rate": sample_rate,
+        "audio_channels": audio_channels,
+        "total": len(source_files),
+        "converted": 0,
+        "skipped": 0,
+        "failed": 0,
+        "items": [],
+        "created_at": int(time.time()),
+    }
+    write_job_metadata(job_id, job)
+    background_tasks.add_task(
+        run_batch_convert_job,
+        job_id,
+        resolved_source_dir,
+        resolved_output_dir,
+        input_format,
+        output_format,
+        recursive,
+        overwrite,
+        audio_codec,
+        audio_bitrate,
+        sample_rate,
+        audio_channels,
+    )
+    return {
+        "job_id": job_id,
+        "status": "queued",
+        "status_url": f"/jobs/{job_id}",
+        "total": len(source_files),
+        "source_dir": str(resolved_source_dir),
+        "output_dir": str(resolved_output_dir),
+    }
+
+
+@app.get("/jobs/{job_id}")
+async def get_job(job_id: str):
+    return read_job_metadata(job_id)
+
+
 @app.get("/artifacts/{file_id}")
 async def get_artifact(file_id: str):
     return read_artifact_metadata(file_id)
@@ -391,6 +611,8 @@ async def list_endpoints():
             "/extract_audio_to_mp3": "Extract audio as MP3 from video",
             "/split_mp3": "Split an MP3 file into chunks no larger than 23MB each",
             "/scrubber": "Remove silence from an MP3 file using silenceremove filter",
+            "/batch/convert-local": "Batch convert trusted local files while preserving relative paths",
+            "/jobs/{job_id}": "Get background job status and per-file batch conversion results",
             "/artifacts/{file_id}": "Get or delete generated artifact metadata by file ID",
             "/download/{file_id}": "Download processed file by exact file ID",
             "/health": "Return container/service health status",

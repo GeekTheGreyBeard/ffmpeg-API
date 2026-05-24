@@ -14,6 +14,7 @@ The Docker Compose stack also includes `ffmpeg-mcp`, a standalone MCP server tha
 - Extracts audio from video as WAV or MP3.
 - Extracts video frames into a ZIP archive.
 - Probes media files with FFprobe and returns JSON metadata.
+- Batch converts trusted local audio directories while preserving relative paths and tracking job status.
 - Splits MP3 files into approximately 23 MB chunks.
 - Removes silence from MP3/audio files with FFmpeg's `silenceremove` filter.
 
@@ -65,8 +66,8 @@ Processed uploads and outputs are stored in the named Docker volume `ffmpeg-api-
 ## Docker
 
 ```bash
-docker build -t ffmpeg-api:1.2.0 .
-docker run --rm -p 8000:8000 -v ffmpeg-api-data:/data ffmpeg-api:1.2.0
+docker build -t ffmpeg-api:1.3.0 .
+docker run --rm -p 8000:8000 -v ffmpeg-api-data:/data ffmpeg-api:1.3.0
 ```
 
 Runtime media paths can be overridden with:
@@ -100,6 +101,8 @@ Most `POST` endpoints accept `multipart/form-data` with a file field named `file
 - `POST /extract_images` - Extract video frames into a ZIP archive.
 - `POST /probe` - Return FFprobe JSON metadata for uploaded media.
 - `POST /extract_audio_to_mp3` - Extract audio from uploaded video/media as MP3.
+- `POST /batch/convert-local` - Batch convert trusted local audio files while preserving relative paths.
+- `GET /jobs/{job_id}` - Return batch job status and per-file conversion results.
 - `POST /split_mp3` - Split an uploaded MP3 into approximately 23 MB chunks.
 - `POST /scrubber` - Remove silence from uploaded MP3/audio.
 - `GET /artifacts/{file_id}` - Return metadata for a generated artifact.
@@ -126,6 +129,23 @@ curl -X POST \
 ```
 
 Replace `<file_id>` with the value returned by the processing endpoint.
+
+Trusted local batch conversion example:
+
+```bash
+curl -X POST \
+  -F "source_dir=/data/source-wav" \
+  -F "output_dir=/data/output-mp3" \
+  -F "input_format=wav" \
+  -F "output_format=mp3" \
+  -F "audio_bitrate=128k" \
+  -F "recursive=true" \
+  http://127.0.0.1:8000/batch/convert-local
+
+curl http://127.0.0.1:8000/jobs/<job_id>
+```
+
+The batch endpoint is intended for trusted deployments where source and destination directories are mounted into the API container or available on the host for local development.
 
 ## MCP Server
 

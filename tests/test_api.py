@@ -227,15 +227,17 @@ def test_list_endpoints_includes_public_routes(client):
     endpoints = response.json()["endpoints"]
     assert "/convert" in endpoints
     assert "/convert_to_mp3" in endpoints
+    assert "/batch/convert-local" in endpoints
+    assert "/jobs/{job_id}" in endpoints
     assert "/artifacts/{file_id}" in endpoints
     assert "/download/{file_id}" in endpoints
 
 
-def test_health_reports_v1_2(client):
+def test_health_reports_v1_3(client):
     response = client.get("/health")
 
     assert response.status_code == 200
-    assert response.json()["version"] == "1.2.0"
+    assert response.json()["version"] == "1.3.0"
 
 
 def test_generic_convert_supports_format_and_audio_options(client, api_module, tmp_path):
@@ -399,6 +401,73 @@ def test_scrubber_returns_named_scrubbed_output(client, api_module, tmp_path):
     assert scrubbed.exists()
     assert_has_stream(scrubbed, "audio")
     assert_downloads(client, body["file_id"])
+
+
+def test_batch_convert_local_preserves_relative_paths(client, tmp_path):
+    source_dir = tmp_path / "source"
+    output_dir = tmp_path / "batch-output"
+    book_dir = source_dir / "01_Genesis"
+    book_dir.mkdir(parents=True)
+    make_wav(book_dir / "Genesis_Chapter_01.wav")
+    make_wav(book_dir / "Genesis_Chapter_02.wav")
+
+    response = client.post(
+        "/batch/convert-local",
+        data={
+            "source_dir": str(source_dir),
+            "output_dir": str(output_dir),
+            "input_format": "wav",
+            "output_format": "mp3",
+            "audio_bitrate": "96k",
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    job_response = client.get(body["status_url"])
+    assert job_response.status_code == 200
+    job = job_response.json()
+    assert job["status"] == "completed"
+    assert job["total"] == 2
+    assert job["converted"] == 2
+    assert job["failed"] == 0
+    first_output = output_dir / "01_Genesis" / "Genesis_Chapter_01.mp3"
+    second_output = output_dir / "01_Genesis" / "Genesis_Chapter_02.mp3"
+    assert first_output.exists()
+    assert second_output.exists()
+    assert_has_stream(first_output, "audio")
+
+
+def test_batch_convert_local_skips_existing_outputs(client, tmp_path):
+    source_dir = tmp_path / "source"
+    output_dir = tmp_path / "batch-output"
+    source_dir.mkdir()
+    make_wav(source_dir / "source.wav")
+    output_dir.mkdir()
+    existing_output = output_dir / "source.mp3"
+    existing_output.write_bytes(b"existing")
+
+    response = client.post(
+        "/batch/convert-local",
+        data={"source_dir": str(source_dir), "output_dir": str(output_dir)},
+    )
+
+    assert response.status_code == 200
+    job = client.get(response.json()["status_url"]).json()
+    assert job["status"] == "completed"
+    assert job["converted"] == 0
+    assert job["skipped"] == 1
+    assert existing_output.read_bytes() == b"existing"
+
+
+def test_batch_convert_local_rejects_empty_source(client, tmp_path):
+    response = client.post(
+        "/batch/convert-local",
+        data={"source_dir": str(tmp_path), "output_dir": str(tmp_path / "output")},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "source_dir does not contain matching input files"
 
 
 def test_download_missing_file_returns_404(client):

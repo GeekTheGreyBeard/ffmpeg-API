@@ -2,7 +2,7 @@ services:
   ffmpeg-api:
     build:
       context: .
-    image: ffmpeg-api:1.2.0
+    image: ffmpeg-api:1.3.0
     container_name: ffmpeg-api
     restart: unless-stopped
     ports:

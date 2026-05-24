@@ -18,9 +18,11 @@ def api_module(tmp_path, monkeypatch):
     module.UPLOAD_DIR = tmp_path / "uploads"
     module.OUTPUT_DIR = tmp_path / "outputs"
     module.METADATA_DIR = module.OUTPUT_DIR / ".metadata"
+    module.JOBS_DIR = module.OUTPUT_DIR / ".jobs"
     module.UPLOAD_DIR.mkdir(exist_ok=True)
     module.OUTPUT_DIR.mkdir(exist_ok=True)
     module.METADATA_DIR.mkdir(exist_ok=True)
+    module.JOBS_DIR.mkdir(exist_ok=True)
 
     return module
 
